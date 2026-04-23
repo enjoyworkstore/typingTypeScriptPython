@@ -1,0 +1,222 @@
+import type { Difficulty, Language, Snippet } from "../types";
+
+const SNIPPETS: Snippet[] = [
+  {
+    id: "ts-easy-1",
+    language: "typescript",
+    difficulty: "easy",
+    title: "Const Basics",
+    description: "定数宣言と四則演算のウォームアップ",
+    meaning: "12 と 8 を足した結果を、`total` という定数に入れています。",
+    notes: [
+      "`const` は再代入しない値を置く宣言です。",
+      "`=` は右側の結果を左側の名前に入れる記号です。",
+    ],
+    code: "const total = 12 + 8;",
+  },
+  {
+    id: "ts-easy-2",
+    language: "typescript",
+    difficulty: "easy",
+    title: "String Variable",
+    description: "文字列代入をゆっくり確認",
+    meaning: "名前の文字列を `userName` という変数に保存しています。",
+    notes: [
+      "`let` はあとで値を変えられる変数宣言です。",
+      "ダブルクォートで囲むと文字列になります。",
+    ],
+    code: 'let userName = "Aki";',
+  },
+  {
+    id: "ts-easy-3",
+    language: "typescript",
+    difficulty: "easy",
+    title: "Simple Array",
+    description: "配列リテラルの基本形",
+    meaning: "3つの数字をまとめて `list` という配列にしています。",
+    notes: [
+      "`[ ]` は複数の値を順番付きで持つ配列です。",
+      "カンマで区切ると要素を追加できます。",
+    ],
+    code: "const list = [1, 2, 3];",
+  },
+  {
+    id: "ts-easy-4",
+    language: "typescript",
+    difficulty: "easy",
+    title: "If Statement",
+    description: "条件分岐とブロック記法の練習",
+    meaning: "点数が 80 以上なら、`good` を表示する条件分岐です。",
+    notes: [
+      "`if (...)` の中が真のときだけブロックが実行されます。",
+      "`console.log()` は画面の裏側のコンソールへ表示します。",
+    ],
+    code: 'if (score >= 80) {\n  console.log("good");\n}',
+  },
+  {
+    id: "ts-normal-1",
+    language: "typescript",
+    difficulty: "normal",
+    title: "Typed Function",
+    description: "引数型と戻り値型を持つ関数",
+    meaning: "名前を受け取り、あいさつ文を文字列で返す関数です。",
+    notes: [
+      "`name: string` は引数 `name` が文字列型だと示します。",
+      "`: string` は戻り値も文字列になることを表します。",
+    ],
+    code: 'function greet(name: string): string {\n  return `Hello, ${name}`;\n}',
+  },
+  {
+    id: "ts-normal-2",
+    language: "typescript",
+    difficulty: "normal",
+    title: "Object Type",
+    description: "type 宣言とセミコロンの練習",
+    meaning: "プロフィールの形を `Profile` という型として定義しています。",
+    notes: [
+      "`type` はデータの形に名前を付けるときに使います。",
+      "`name` と `level` はこの型が持つ項目です。",
+    ],
+    code: "type Profile = {\n  name: string;\n  level: number;\n};",
+  },
+  {
+    id: "ts-normal-3",
+    language: "typescript",
+    difficulty: "normal",
+    title: "Filter Users",
+    description: "アロー関数とドット記法の練習",
+    meaning: "`users` の中から `active` が真のものだけを取り出しています。",
+    notes: [
+      "`filter()` は条件に合う要素だけを新しい配列にします。",
+      "`user.active` はオブジェクトの `active` プロパティ参照です。",
+    ],
+    code: "const result = users.filter((user) => user.active);",
+  },
+  {
+    id: "ts-normal-4",
+    language: "typescript",
+    difficulty: "normal",
+    title: "Loop Total",
+    description: "for...of と複合代入の練習",
+    meaning: "商品一覧を順番に見て、価格を `total` に足し込んでいます。",
+    notes: [
+      "`for...of` は配列の要素を1つずつ取り出すループです。",
+      "`+=` は今ある値に右側を加える書き方です。",
+    ],
+    code: "for (const item of items) {\n  total += item.price;\n}",
+  },
+  {
+    id: "py-easy-1",
+    language: "python",
+    difficulty: "easy",
+    title: "Simple Sum",
+    description: "Python の代入と演算",
+    meaning: "12 と 8 を足した値を `total` に入れています。",
+    notes: [
+      "Python は末尾のセミコロンが通常不要です。",
+      "`=` は右側の計算結果を左側に代入します。",
+    ],
+    code: "total = 12 + 8",
+  },
+  {
+    id: "py-easy-2",
+    language: "python",
+    difficulty: "easy",
+    title: "Name String",
+    description: "スネークケースと文字列代入",
+    meaning: "文字列 `Aki` を `user_name` という変数に入れています。",
+    notes: [
+      "Python では `user_name` のようなスネークケースをよく使います。",
+      "文字列はクォートで囲んで表します。",
+    ],
+    code: 'user_name = "Aki"',
+  },
+  {
+    id: "py-easy-3",
+    language: "python",
+    difficulty: "easy",
+    title: "Simple List",
+    description: "リストの基本形",
+    meaning: "数字を3つまとめて `items` というリストにしています。",
+    notes: [
+      "Python のリストも `[ ]` で表します。",
+      "要素の順番を保ったまま扱えます。",
+    ],
+    code: "items = [1, 2, 3]",
+  },
+  {
+    id: "py-easy-4",
+    language: "python",
+    difficulty: "easy",
+    title: "If Print",
+    description: "コロンとインデントの練習",
+    meaning: "点数が 80 以上なら `good` を表示する条件分岐です。",
+    notes: [
+      "Python は `{}` の代わりにコロンとインデントで範囲を表します。",
+      "`print()` は標準出力に文字を表示します。",
+    ],
+    code: 'if score >= 80:\n  print("good")',
+  },
+  {
+    id: "py-normal-1",
+    language: "python",
+    difficulty: "normal",
+    title: "Typed Function",
+    description: "型ヒント付き関数と f 文字列",
+    meaning: "名前を受け取り、あいさつ文を返す関数です。",
+    notes: [
+      "`name: str` は引数が文字列だという型ヒントです。",
+      "`f\"...\"` で変数を文の中へ埋め込めます。",
+    ],
+    code: 'def greet(name: str) -> str:\n  return f"Hello, {name}"',
+  },
+  {
+    id: "py-normal-2",
+    language: "python",
+    difficulty: "normal",
+    title: "Loop Price",
+    description: "辞書アクセスと複合代入",
+    meaning: "各 `item` の価格を取り出して `total` に足しています。",
+    notes: [
+      "`for item in items` は要素を順番に見るループです。",
+      "`item[\"price\"]` は辞書の `price` キーにある値を取ります。",
+    ],
+    code: 'for item in items:\n  total += item["price"]',
+  },
+  {
+    id: "py-normal-3",
+    language: "python",
+    difficulty: "normal",
+    title: "Dictionary Literal",
+    description: "複数行辞書とカンマの練習",
+    meaning: "プロフィール情報を辞書として `profile` にまとめています。",
+    notes: [
+      "辞書は `キー: 値` の組み合わせを持つデータです。",
+      "複数行でもカンマで項目を区切れます。",
+    ],
+    code: 'profile = {\n  "name": "Aki",\n  "level": 3,\n}',
+  },
+  {
+    id: "py-normal-4",
+    language: "python",
+    difficulty: "normal",
+    title: "List Comprehension",
+    description: "内包表記と range の練習",
+    meaning: "`range(5)` の値を使って新しいリストを作っています。",
+    notes: [
+      "リスト内包表記は短く配列を作る書き方です。",
+      "`range(5)` は 0 から 4 までの連続値を作ります。",
+    ],
+    code: "numbers = [value for value in range(5)]",
+  },
+];
+
+export function getSnippetPool(
+  language: Language,
+  difficulty: Difficulty,
+): Snippet[] {
+  return SNIPPETS.filter(
+    (snippet) =>
+      snippet.language === language && snippet.difficulty === difficulty,
+  );
+}
