@@ -1,4 +1,11 @@
 import { getSnippetPool } from "./data/snippets";
+import {
+  clearImportedLibrary,
+  importCodeFile,
+  loadImportedLibrary,
+  type ImportedFileResult,
+  type ImportedLibrary,
+} from "./data/importedSnippets";
 import type {
   Difficulty,
   KeyStat,
@@ -8,6 +15,7 @@ import type {
 } from "./types";
 
 type Screen = "menu" | "session" | "result";
+type TypingSoundProfile = "typewriter" | "mechanical" | "soft";
 
 interface ActiveSession {
   language: Language;
@@ -18,6 +26,7 @@ interface ActiveSession {
   currentSnippet: Snippet;
   progress: number;
   startedAt: number;
+  elapsedBeforePauseMs: number;
   correctStrokes: number;
   assistedCharacters: number;
   assistedCompletions: number;
@@ -35,6 +44,15 @@ interface AppState {
   language: Language;
   difficulty: Difficulty;
   intellisenseEnabled: boolean;
+  typingSoundEnabled: boolean;
+  typingSoundProfile: TypingSoundProfile;
+  sessionTimerVisible: boolean;
+  importedLibrary: ImportedLibrary;
+  importFeedback: string | null;
+  interruptedSession: ActiveSession | null;
+  interruptedResult: SessionRecord | null;
+  resultInterrupted: boolean;
+  sessionMessage: string | null;
   history: SessionRecord[];
   session: ActiveSession | null;
   result: SessionRecord | null;
@@ -57,6 +75,15 @@ interface IntelliSenseCandidate {
 interface TokenContext {
   start: number;
   prefix: string;
+}
+
+interface StoredSettings {
+  language?: Language;
+  difficulty?: Difficulty;
+  intellisenseEnabled?: boolean;
+  typingSoundEnabled?: boolean;
+  typingSoundProfile?: TypingSoundProfile;
+  sessionTimerVisible?: boolean;
 }
 
 const STORAGE_KEY = "typing-for-enjoy-workstore:v1";
@@ -200,6 +227,16 @@ const formatter = new Intl.DateTimeFormat("ja-JP", {
   minute: "2-digit",
 });
 
+const TYPING_SOUND_OPTIONS: Array<{
+  value: TypingSoundProfile;
+  label: string;
+  detail: string;
+}> = [
+  { value: "typewriter", label: "Typewriter", detail: "sharp" },
+  { value: "mechanical", label: "Mechanical", detail: "heavy" },
+  { value: "soft", label: "Soft", detail: "quiet" },
+];
+
 const INTELLISENSE_CANDIDATES: Record<Language, IntelliSenseCandidate[]> = {
   typescript: [
     createCandidate("const", "keyword", "再代入しない値を宣言します。"),
@@ -244,26 +281,56 @@ const INTELLISENSE_CANDIDATES: Record<Language, IntelliSenseCandidate[]> = {
     createCandidate("value", "variable", "内包表記で取り出す値です。"),
     createCandidate("score", "variable", "点数を表す変数です。"),
   ],
+  sql: [
+    createCandidate("SELECT", "keyword", "取り出したい列を指定します。"),
+    createCandidate("FROM", "keyword", "どのテーブルを見るかを指定します。"),
+    createCandidate("WHERE", "keyword", "条件で行を絞ります。"),
+    createCandidate("INSERT", "keyword", "新しい行を追加します。"),
+    createCandidate("UPDATE", "keyword", "既存の値を更新します。"),
+    createCandidate("DELETE", "keyword", "条件に合う行を削除します。"),
+    createCandidate("JOIN", "keyword", "複数テーブルを結合します。"),
+    createCandidate("GROUP BY", "keyword", "列ごとに集計します。"),
+    createCandidate("ORDER BY", "keyword", "並び順を指定します。"),
+    createCandidate("VALUES", "keyword", "追加する値を書きます。"),
+    createCandidate("COUNT(*)", "function", "行数を数える集計関数です。"),
+    createCandidate("users", "variable", "ユーザーテーブル名の例です。"),
+    createCandidate("orders", "variable", "注文テーブル名の例です。"),
+    createCandidate("name", "property", "名前列の例です。"),
+    createCandidate("price", "property", "価格列の例です。"),
+    createCandidate("created_at", "property", "日時列の例です。"),
+  ],
 };
 
 export class TypingForEnjoyApp {
   private readonly root: HTMLElement;
   private state: AppState;
   private sessionTicker: number | null = null;
+  private audioContext: AudioContext | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
+    const settings = this.loadSettings();
     this.state = {
       screen: "menu",
-      language: "typescript",
-      difficulty: "easy",
-      intellisenseEnabled: this.loadIntellisenseSetting(),
+      language: settings.language,
+      difficulty: settings.difficulty,
+      intellisenseEnabled: settings.intellisenseEnabled,
+      typingSoundEnabled: settings.typingSoundEnabled,
+      typingSoundProfile: settings.typingSoundProfile,
+      sessionTimerVisible: settings.sessionTimerVisible,
+      importedLibrary: loadImportedLibrary(),
+      importFeedback: null,
+      interruptedSession: null,
+      interruptedResult: null,
+      resultInterrupted: false,
+      sessionMessage: null,
       history: this.loadHistory(),
       session: null,
       result: null,
     };
 
     this.root.addEventListener("click", this.handleClick);
+    this.root.addEventListener("change", this.handleChange);
     this.root.addEventListener("keydown", this.handleChoiceKeydown);
     window.addEventListener("keydown", this.handleGlobalKeydown);
 
@@ -283,14 +350,21 @@ export class TypingForEnjoyApp {
       return;
     }
 
+    if (action === "resume-session") {
+      this.resumeInterruptedSession();
+      return;
+    }
+
     if (action === "select-language") {
       this.state.language = button.dataset.value as Language;
+      this.persistSettings();
       this.render();
       return;
     }
 
     if (action === "select-difficulty") {
       this.state.difficulty = button.dataset.value as Difficulty;
+      this.persistSettings();
       this.render();
       return;
     }
@@ -310,9 +384,75 @@ export class TypingForEnjoyApp {
       return;
     }
 
+    if (action === "open-import-dialog") {
+      this.openImportDialog();
+      return;
+    }
+
+    if (action === "clear-imported") {
+      this.clearImportedSnippets();
+      return;
+    }
+
     if (action === "toggle-intellisense") {
       this.toggleIntelliSense();
+      return;
     }
+
+    if (action === "toggle-sound") {
+      this.toggleTypingSound();
+      return;
+    }
+
+    if (action === "toggle-session-timer") {
+      this.toggleSessionTimer();
+      return;
+    }
+
+    if (action === "copy-current-snippet") {
+      void this.copyCurrentSnippet();
+      return;
+    }
+
+    if (action === "search-current-snippet") {
+      this.searchCurrentSnippet();
+      return;
+    }
+
+    if (action === "select-sound-profile") {
+      this.setTypingSoundProfile(button.dataset.value as TypingSoundProfile);
+    }
+  };
+
+  private handleChange = async (event: Event) => {
+    const target = event.target as HTMLInputElement | null;
+    if (!target || target.id !== "import-snippet-file") {
+      return;
+    }
+
+    const files = Array.from(target.files ?? []);
+    target.value = "";
+    if (files.length === 0) {
+      return;
+    }
+
+    const results: ImportedFileResult[] = [];
+    const errors: string[] = [];
+
+    for (const file of files) {
+      try {
+        const sourceText = await file.text();
+        results.push(importCodeFile(file.name, sourceText));
+      } catch (error) {
+        errors.push(
+          `${file.name}: ${error instanceof Error ? error.message : "取り込みに失敗しました。"}`,
+        );
+      }
+    }
+
+    this.state.importedLibrary = loadImportedLibrary();
+    this.state.importFeedback = buildImportFeedback(results, errors);
+    this.render();
   };
 
   private handleChoiceKeydown = (event: KeyboardEvent) => {
@@ -352,7 +492,11 @@ export class TypingForEnjoyApp {
     if (this.state.screen === "result") {
       if (event.key === "Enter") {
         event.preventDefault();
-        this.startSession();
+        if (this.state.resultInterrupted && this.state.interruptedSession) {
+          this.resumeInterruptedSession();
+        } else {
+          this.startSession();
+        }
       }
 
       if (event.key === "Escape") {
@@ -363,7 +507,12 @@ export class TypingForEnjoyApp {
   };
 
   private startSession() {
-    const pool = getSnippetPool(this.state.language, this.state.difficulty);
+    this.commitInterruptedSession();
+    const pool = getSnippetPool(
+      this.state.language,
+      this.state.difficulty,
+      this.state.importedLibrary.snippets,
+    );
     if (pool.length === 0) {
       return;
     }
@@ -378,6 +527,7 @@ export class TypingForEnjoyApp {
       currentSnippet: queue[0],
       progress: 0,
       startedAt: Date.now(),
+      elapsedBeforePauseMs: 0,
       correctStrokes: 0,
       assistedCharacters: 0,
       assistedCompletions: 0,
@@ -390,6 +540,8 @@ export class TypingForEnjoyApp {
       selectedSuggestionIndex: 0,
     };
     this.state.result = null;
+    this.state.resultInterrupted = false;
+    this.state.sessionMessage = null;
     this.state.screen = "session";
     this.startTicker();
     this.render();
@@ -403,7 +555,7 @@ export class TypingForEnjoyApp {
 
     if (event.key === "Escape") {
       event.preventDefault();
-      this.finishSession();
+      this.interruptSession();
       return;
     }
 
@@ -465,6 +617,9 @@ export class TypingForEnjoyApp {
       stat.mistakesByTyped[inputChar] = (stat.mistakesByTyped[inputChar] ?? 0) + 1;
     }
 
+    this.playTypingSound({
+      correct: inputChar === expectedChar,
+    });
     this.render();
   }
 
@@ -521,13 +676,39 @@ export class TypingForEnjoyApp {
       this.advanceSnippet(session);
     }
 
+    this.playTypingSound({
+      correct: true,
+      assisted: true,
+    });
+    this.render();
+  }
+
+  private resumeInterruptedSession() {
+    const session = this.state.interruptedSession;
+    if (!session) {
+      return;
+    }
+
+    session.startedAt = Date.now();
+    this.state.session = session;
+    this.state.interruptedSession = null;
+    this.state.interruptedResult = null;
+    this.state.result = null;
+    this.state.resultInterrupted = false;
+    this.state.sessionMessage = "Paused session resumed.";
+    this.state.screen = "session";
+    this.startTicker();
     this.render();
   }
 
   private advanceSnippet(session: ActiveSession) {
     session.currentIndex += 1;
     if (session.currentIndex >= session.queue.length) {
-      const refreshedPool = getSnippetPool(session.language, session.difficulty);
+      const refreshedPool = getSnippetPool(
+        session.language,
+        session.difficulty,
+        this.state.importedLibrary.snippets,
+      );
       session.pool = refreshedPool.length > 0 ? refreshedPool : session.pool;
       session.queue = shuffle(session.pool);
       session.currentIndex = 0;
@@ -540,41 +721,32 @@ export class TypingForEnjoyApp {
     session.selectedSuggestionIndex = 0;
   }
 
-  private finishSession() {
+  private interruptSession() {
     const session = this.state.session;
     if (!session) {
       return;
     }
 
-    const record: SessionRecord = {
-      id: globalThis.crypto?.randomUUID?.() ?? `session-${Date.now()}`,
-      endedAt: Date.now(),
-      language: session.language,
-      difficulty: session.difficulty,
-      durationMs: Date.now() - session.startedAt,
-      correctStrokes: session.correctStrokes,
-      assistedCharacters: session.assistedCharacters,
-      assistedCompletions: session.assistedCompletions,
-      mistakeCount: session.errorCount,
-      totalKeystrokes: session.totalKeystrokes,
-      accuracy: calculateAccuracy(session.correctStrokes, session.totalKeystrokes),
-      completedSnippets: session.completedSnippets,
-      keyStats: session.keyStats,
-    };
+    session.elapsedBeforePauseMs = getSessionElapsedMs(session);
+    const record = createSessionRecord(session);
 
-    this.state.history = [record, ...this.state.history].slice(0, MAX_HISTORY);
+    this.state.interruptedSession = session;
+    this.state.interruptedResult = record;
     this.state.result = record;
+    this.state.resultInterrupted = true;
     this.state.session = null;
+    this.state.sessionMessage = null;
     this.state.screen = "result";
     this.stopTicker();
-    this.persistHistory();
     this.render();
   }
 
   private returnToMenu() {
     this.state.screen = "menu";
     this.state.result = null;
+    this.state.resultInterrupted = false;
     this.state.session = null;
+    this.state.sessionMessage = null;
     this.stopTicker();
     this.render();
   }
@@ -609,17 +781,40 @@ export class TypingForEnjoyApp {
     }
   }
 
-  private loadIntellisenseSetting() {
+  private loadSettings() {
     try {
       const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (!raw) {
-        return true;
+        return {
+          language: "typescript" as Language,
+          difficulty: "easy" as Difficulty,
+          intellisenseEnabled: true,
+          typingSoundEnabled: true,
+          typingSoundProfile: "typewriter" as TypingSoundProfile,
+          sessionTimerVisible: true,
+        };
       }
 
-      const parsed = JSON.parse(raw) as { intellisenseEnabled?: boolean };
-      return parsed.intellisenseEnabled ?? true;
+      const parsed = JSON.parse(raw) as StoredSettings;
+      return {
+        language: isLanguage(parsed.language) ? parsed.language : "typescript",
+        difficulty: isDifficulty(parsed.difficulty) ? parsed.difficulty : "easy",
+        intellisenseEnabled: parsed.intellisenseEnabled ?? true,
+        typingSoundEnabled: parsed.typingSoundEnabled ?? true,
+        typingSoundProfile: isTypingSoundProfile(parsed.typingSoundProfile)
+          ? parsed.typingSoundProfile
+          : "typewriter",
+        sessionTimerVisible: parsed.sessionTimerVisible ?? true,
+      };
     } catch {
-      return true;
+      return {
+        language: "typescript" as Language,
+        difficulty: "easy" as Difficulty,
+        intellisenseEnabled: true,
+        typingSoundEnabled: true,
+        typingSoundProfile: "typewriter" as TypingSoundProfile,
+        sessionTimerVisible: true,
+      };
     }
   }
 
@@ -630,7 +825,12 @@ export class TypingForEnjoyApp {
 
   private persistSettings() {
     const payload = JSON.stringify({
+      language: this.state.language,
+      difficulty: this.state.difficulty,
       intellisenseEnabled: this.state.intellisenseEnabled,
+      typingSoundEnabled: this.state.typingSoundEnabled,
+      typingSoundProfile: this.state.typingSoundProfile,
+      sessionTimerVisible: this.state.sessionTimerVisible,
     });
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, payload);
   }
@@ -642,6 +842,209 @@ export class TypingForEnjoyApp {
     }
     this.persistSettings();
     this.render();
+  }
+
+  private toggleTypingSound() {
+    this.state.typingSoundEnabled = !this.state.typingSoundEnabled;
+    this.persistSettings();
+    if (this.state.typingSoundEnabled) {
+      this.playTypingSound({ correct: true, assisted: true });
+    }
+    this.render();
+  }
+
+  private toggleSessionTimer() {
+    this.state.sessionTimerVisible = !this.state.sessionTimerVisible;
+    this.persistSettings();
+    this.render();
+  }
+
+  private async copyCurrentSnippet() {
+    const session = this.state.session;
+    if (!session) {
+      return;
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(session.currentSnippet.code);
+      } else {
+        copyTextFallback(session.currentSnippet.code);
+      }
+      this.state.sessionMessage = "Code copied.";
+    } catch {
+      try {
+        copyTextFallback(session.currentSnippet.code);
+        this.state.sessionMessage = "Code copied.";
+      } catch {
+        this.state.sessionMessage = "Copy failed.";
+      }
+    }
+
+    this.render();
+  }
+
+  private searchCurrentSnippet() {
+    const session = this.state.session;
+    if (!session) {
+      return;
+    }
+
+    const query = `"${session.currentSnippet.code.replace(/\s+/g, " ").trim()}"`;
+    window.open(
+      `https://www.google.com/search?q=${encodeURIComponent(query)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+    this.state.sessionMessage = "Search opened.";
+    this.render();
+  }
+
+  private setTypingSoundProfile(profile: TypingSoundProfile) {
+    if (!isTypingSoundProfile(profile)) {
+      return;
+    }
+
+    this.state.typingSoundProfile = profile;
+    this.persistSettings();
+    if (this.state.typingSoundEnabled) {
+      this.playTypingSound({ correct: true, assisted: true });
+    }
+    this.render();
+  }
+
+  private getAudioContext() {
+    const AudioContextCtor =
+      window.AudioContext ??
+      (
+        window as Window & typeof globalThis & {
+          webkitAudioContext?: typeof AudioContext;
+        }
+      ).webkitAudioContext;
+    if (!AudioContextCtor) {
+      return null;
+    }
+
+    if (!this.audioContext) {
+      this.audioContext = new AudioContextCtor();
+    }
+
+    if (this.audioContext.state === "suspended") {
+      void this.audioContext.resume();
+    }
+
+    return this.audioContext;
+  }
+
+  private playTypingSound(options: { correct: boolean; assisted?: boolean }) {
+    if (!this.state.typingSoundEnabled) {
+      return;
+    }
+
+    const context = this.getAudioContext();
+    if (!context) {
+      return;
+    }
+
+    const when = context.currentTime + 0.001;
+    const pitch = options.correct ? 1 : 0.82;
+    const loudness = options.assisted ? 0.78 : 1;
+
+    switch (this.state.typingSoundProfile) {
+      case "typewriter":
+        this.emitTone(context, {
+          when,
+          type: "triangle",
+          startFrequency: 2100 * pitch,
+          endFrequency: 920 * pitch,
+          duration: 0.022,
+          volume: 0.02 * loudness,
+        });
+        this.emitTone(context, {
+          when: when + 0.002,
+          type: "square",
+          startFrequency: 210 * pitch,
+          endFrequency: 120 * pitch,
+          duration: 0.034,
+          volume: 0.013 * loudness,
+        });
+        break;
+      case "mechanical":
+        this.emitTone(context, {
+          when,
+          type: "square",
+          startFrequency: 920 * pitch,
+          endFrequency: 340 * pitch,
+          duration: 0.028,
+          volume: 0.022 * loudness,
+        });
+        this.emitTone(context, {
+          when: when + 0.003,
+          type: "triangle",
+          startFrequency: 280 * pitch,
+          endFrequency: 118 * pitch,
+          duration: 0.046,
+          volume: 0.016 * loudness,
+        });
+        break;
+      case "soft":
+        this.emitTone(context, {
+          when,
+          type: "sine",
+          startFrequency: 650 * pitch,
+          endFrequency: 250 * pitch,
+          duration: 0.03,
+          volume: 0.014 * loudness,
+        });
+        this.emitTone(context, {
+          when: when + 0.001,
+          type: "triangle",
+          startFrequency: 1400 * pitch,
+          endFrequency: 720 * pitch,
+          duration: 0.016,
+          volume: 0.008 * loudness,
+        });
+        break;
+    }
+  }
+
+  private emitTone(
+    context: AudioContext,
+    options: {
+      when: number;
+      type: OscillatorType;
+      startFrequency: number;
+      endFrequency: number;
+      duration: number;
+      volume: number;
+    },
+  ) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = options.type;
+    oscillator.frequency.setValueAtTime(
+      Math.max(40, options.startFrequency),
+      options.when,
+    );
+    oscillator.frequency.exponentialRampToValueAtTime(
+      Math.max(40, options.endFrequency),
+      options.when + options.duration,
+    );
+    oscillator.detune.setValueAtTime((Math.random() - 0.5) * 26, options.when);
+
+    gain.gain.setValueAtTime(0.0001, options.when);
+    gain.gain.exponentialRampToValueAtTime(
+      Math.max(0.0001, options.volume),
+      options.when + 0.004,
+    );
+    gain.gain.exponentialRampToValueAtTime(0.0001, options.when + options.duration);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.start(options.when);
+    oscillator.stop(options.when + options.duration + 0.01);
   }
 
   private resetHistory() {
@@ -657,6 +1060,42 @@ export class TypingForEnjoyApp {
     this.state.history = [];
     this.state.result = null;
     window.localStorage.removeItem(STORAGE_KEY);
+    this.render();
+  }
+
+  private openImportDialog() {
+    const input = this.root.querySelector<HTMLInputElement>("#import-snippet-file");
+    input?.click();
+  }
+
+  private commitInterruptedSession() {
+    if (!this.state.interruptedResult) {
+      this.state.interruptedSession = null;
+      return;
+    }
+
+    this.state.history = [this.state.interruptedResult, ...this.state.history].slice(
+      0,
+      MAX_HISTORY,
+    );
+    this.persistHistory();
+    this.state.interruptedResult = null;
+    this.state.interruptedSession = null;
+    this.state.resultInterrupted = false;
+  }
+
+  private clearImportedSnippets() {
+    if (this.state.importedLibrary.files.length === 0) {
+      return;
+    }
+
+    const shouldClear = window.confirm("取り込み済みの問題をリセットしますか？");
+    if (!shouldClear) {
+      return;
+    }
+
+    this.state.importedLibrary = clearImportedLibrary();
+    this.state.importFeedback = "取り込み済みの問題をリセットしました。";
     this.render();
   }
 
@@ -678,7 +1117,24 @@ export class TypingForEnjoyApp {
 
   private renderMenu() {
     const aggregateWeakKeys = summarizeWeakKeys(this.state.history);
-    const recentHistory = this.state.history.slice(0, 4);
+    const recentHistory = this.state.history.slice(0, 3);
+    const recentImportedFiles = this.state.importedLibrary.files.slice(0, 3);
+    const importedSnippets = this.state.importedLibrary.snippets;
+    const importedFileCount = this.state.importedLibrary.files.length;
+    const selectedImportedCount = importedSnippets.filter(
+      (snippet) =>
+        snippet.language === this.state.language &&
+        snippet.difficulty === this.state.difficulty,
+    ).length;
+    const importedTypeScriptCount = importedSnippets.filter(
+      (snippet) => snippet.language === "typescript",
+    ).length;
+    const importedPythonCount = importedSnippets.filter(
+      (snippet) => snippet.language === "python",
+    ).length;
+    const importedSqlCount = importedSnippets.filter(
+      (snippet) => snippet.language === "sql",
+    ).length;
     const totalCompleted = this.state.history.reduce(
       (sum, record) => sum + record.completedSnippets,
       0,
@@ -696,6 +1152,15 @@ export class TypingForEnjoyApp {
         ? this.state.history.reduce((sum, record) => sum + record.accuracy, 0) /
           this.state.history.length
         : 0;
+    const importSummary =
+      importedFileCount > 0
+        ? `${importedFileCount} files / ${importedSnippets.length} snippets`
+        : "No imports";
+    const importedModeActive = selectedImportedCount > 0;
+    const importReadyText =
+      importedModeActive
+        ? `${formatLanguage(this.state.language)} / ${formatDifficulty(this.state.difficulty)} はインポートコード ${selectedImportedCount} 問のみ出題`
+        : `${formatLanguage(this.state.language)} / ${formatDifficulty(this.state.difficulty)} のインポートコードはまだありません`;
 
     return `
       <div class="app-shell app-shell--menu">
@@ -735,9 +1200,10 @@ export class TypingForEnjoyApp {
 
             <div class="choice-block">
               <div class="choice-label">Language</div>
-              <div class="choice-grid" role="radiogroup" aria-label="Language">
+              <div class="choice-grid choice-grid--language" role="radiogroup" aria-label="Language">
                 ${this.renderChoiceButton("language", "typescript", "TypeScript")}
                 ${this.renderChoiceButton("language", "python", "Python")}
+                ${this.renderChoiceButton("language", "sql", "SQL")}
               </div>
             </div>
 
@@ -749,64 +1215,148 @@ export class TypingForEnjoyApp {
               </div>
             </div>
 
+            <div class="choice-block">
+              <div class="choice-block__head">
+                <div class="choice-label">Typing Sound</div>
+                <button
+                  class="secondary-button secondary-button--tiny"
+                  data-action="toggle-sound"
+                  aria-pressed="${this.state.typingSoundEnabled}"
+                >
+                  Sound ${this.state.typingSoundEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              <div class="choice-grid choice-grid--sound" role="radiogroup" aria-label="Typing sound">
+                ${TYPING_SOUND_OPTIONS.map((option) =>
+                  this.renderTypingSoundButton(
+                    option.value,
+                    option.label,
+                    option.detail,
+                  ),
+                ).join("")}
+              </div>
+            </div>
+
+            <div class="choice-block">
+              <div class="choice-block__head">
+                <div class="choice-label">Code Import</div>
+                <button
+                  class="secondary-button secondary-button--tiny secondary-button--danger"
+                  data-action="clear-imported"
+                  ${importedFileCount === 0 ? "disabled" : ""}
+                >
+                  Clear
+                </button>
+              </div>
+              <input
+                id="import-snippet-file"
+                class="hidden-file-input"
+                type="file"
+                accept=".ts,.tsx,.py,.sql"
+                multiple
+              />
+              <div class="import-panel">
+                <div class="import-panel__summary">
+                  <span class="import-panel__count">${escapeHtml(importSummary)}</span>
+                  <span class="import-panel__detail">TS ${importedTypeScriptCount} / PY ${importedPythonCount} / SQL ${importedSqlCount}</span>
+                  <span class="import-panel__detail">${escapeHtml(importReadyText)}</span>
+                </div>
+                <div class="import-panel__actions">
+                  <button
+                    class="secondary-button secondary-button--full"
+                    data-action="open-import-dialog"
+                  >
+                    Import .ts / .py / .sql
+                  </button>
+                </div>
+                ${
+                  this.state.importFeedback
+                    ? `<p class="import-feedback">${escapeHtml(this.state.importFeedback)}</p>`
+                    : ""
+                }
+              </div>
+            </div>
+
             <div class="control-panel__footer">
-              <button class="primary-button" data-action="start-session">
-                Start
-              </button>
+              ${
+                this.state.interruptedSession
+                  ? `<button class="secondary-button" data-action="resume-session">Resume</button>`
+                  : ""
+              }
+              ${renderPrimaryButton("start-session", "Start", "full")}
             </div>
           </section>
 
-          <section class="panel overview-panel">
+          <section class="panel panel--glow overview-panel">
             <div class="panel-head">
               <h2>Overview</h2>
             </div>
 
-            <div class="stat-grid stat-grid--compact">
-              ${renderStatCard("Sessions", `${this.state.history.length}`)}
-              ${renderStatCard(
-                "Average",
-                this.state.history.length > 0 ? `${averageAccuracy.toFixed(1)}%` : "-",
-              )}
-              ${renderStatCard("Solved", `${totalCompleted}`)}
-              ${renderStatCard("Misses", `${totalMistakes}`)}
-              ${renderStatCard("Assist", `${totalAssisted}`)}
+            <div class="choice-block">
+              <div class="choice-label">Summary</div>
+              <div class="stat-grid stat-grid--menu">
+                ${renderStatCard("Sessions", `${this.state.history.length}`)}
+                ${renderStatCard(
+                  "Average",
+                  this.state.history.length > 0 ? `${averageAccuracy.toFixed(1)}%` : "-",
+                )}
+                ${renderStatCard("Solved", `${totalCompleted}`)}
+                ${renderStatCard("Misses", `${totalMistakes}`)}
+                ${renderStatCard("Assist", `${totalAssisted}`)}
+                ${renderStatCard("Imported", `${importedSnippets.length}`)}
+              </div>
             </div>
 
-            <div class="panel-head panel-head--tight">
-              <h2>Weak Keys</h2>
+            <div class="choice-block">
+              <div class="choice-label">Weak Keys</div>
+              <div class="menu-stack">
+                ${renderWeakKeyList(aggregateWeakKeys, "No history", 4)}
+              </div>
             </div>
-            ${renderWeakKeyList(aggregateWeakKeys, "No history", 4)}
           </section>
 
-          <section class="panel history-panel">
+          <section class="panel panel--glow history-panel">
             <div class="panel-head">
               <h2>Recent</h2>
             </div>
-            ${
-              recentHistory.length > 0
-                ? `
-                  <div class="history-list">
-                    ${recentHistory
-                      .map(
-                        (record) => `
-                          <article class="history-item">
-                            <div class="history-item__head">
-                              <span class="history-item__title">${formatLanguage(record.language)} / ${formatDifficulty(record.difficulty)}</span>
-                              <span>${formatter.format(record.endedAt)}</span>
-                            </div>
-                            <div class="history-item__body">
-                              <span>${record.completedSnippets} solved</span>
-                              <span>${record.accuracy.toFixed(1)}%</span>
-                              <span>×${record.mistakeCount}</span>
-                            </div>
-                          </article>
-                        `,
-                      )
-                      .join("")}
-                  </div>
-                `
-                : `<p class="empty-note">No history</p>`
-            }
+
+            <div class="choice-block">
+              <div class="choice-label">Imported Files</div>
+              <div class="menu-stack">
+                ${renderImportedFileList(recentImportedFiles)}
+              </div>
+            </div>
+
+            <div class="choice-block">
+              <div class="choice-label">Sessions</div>
+              <div class="menu-stack">
+                ${
+                  recentHistory.length > 0
+                    ? `
+                      <div class="history-list history-list--menu">
+                        ${recentHistory
+                          .map(
+                            (record) => `
+                              <article class="history-item history-item--menu">
+                                <div class="history-item__head">
+                                  <span class="history-item__title">${formatLanguage(record.language)} / ${formatDifficulty(record.difficulty)}</span>
+                                  <span>${formatter.format(record.endedAt)}</span>
+                                </div>
+                                <div class="history-item__body">
+                                  <span>${record.completedSnippets} solved</span>
+                                  <span>${record.accuracy.toFixed(1)}%</span>
+                                  <span>×${record.mistakeCount}</span>
+                                </div>
+                              </article>
+                            `,
+                          )
+                          .join("")}
+                      </div>
+                    `
+                    : `<p class="empty-note">No history</p>`
+                }
+              </div>
+            </div>
           </section>
         </main>
       </div>
@@ -838,13 +1388,38 @@ export class TypingForEnjoyApp {
     `;
   }
 
+  private renderTypingSoundButton(
+    profile: TypingSoundProfile,
+    title: string,
+    description: string,
+  ) {
+    const selected = this.state.typingSoundProfile === profile;
+    const inactive = !this.state.typingSoundEnabled;
+
+    return `
+      <button
+        class="choice-card choice-card--sound ${selected ? "choice-card--selected" : ""} ${
+          inactive ? "choice-card--inactive" : ""
+        }"
+        data-action="select-sound-profile"
+        data-option-group="sound-profile"
+        data-value="${profile}"
+        role="radio"
+        aria-checked="${selected}"
+      >
+        <span class="choice-card__title">${title}</span>
+        <span class="choice-card__detail">${description}</span>
+      </button>
+    `;
+  }
+
   private renderSession() {
     const session = this.state.session;
     if (!session) {
       return "";
     }
 
-    const elapsedMs = Date.now() - session.startedAt;
+    const elapsedMs = getSessionElapsedMs(session);
     const accuracy = calculateAccuracy(session.correctStrokes, session.totalKeystrokes);
     const progressRate =
       session.currentSnippet.code.length > 0
@@ -878,6 +1453,20 @@ export class TypingForEnjoyApp {
             >
               IntelliSense ${this.state.intellisenseEnabled ? "ON" : "OFF"}
             </button>
+            <button
+              class="secondary-button"
+              data-action="toggle-sound"
+              aria-pressed="${this.state.typingSoundEnabled}"
+            >
+              Sound ${this.state.typingSoundEnabled ? "ON" : "OFF"}
+            </button>
+            <button
+              class="secondary-button"
+              data-action="toggle-session-timer"
+              aria-pressed="${this.state.sessionTimerVisible}"
+            >
+              Time ${this.state.sessionTimerVisible ? "ON" : "OFF"}
+            </button>
             <div class="session-chip">
               <span class="session-chip__label">Next</span>
               <span class="session-chip__value">${escapeHtml(displayKeyLabel(expectedChar))}</span>
@@ -885,7 +1474,7 @@ export class TypingForEnjoyApp {
             </div>
             <div class="session-stop">
               <span>Esc</span>
-              <small>End</small>
+              <small>Pause</small>
             </div>
           </div>
         </header>
@@ -904,6 +1493,28 @@ export class TypingForEnjoyApp {
               <div class="progress-strip__bar" style="width:${progressRate.toFixed(2)}%"></div>
             </div>
 
+            <div class="prompt-toolbar">
+              <div class="prompt-toolbar__actions">
+                <button
+                  class="secondary-button secondary-button--tiny"
+                  data-action="copy-current-snippet"
+                >
+                  Copy
+                </button>
+                <button
+                  class="secondary-button secondary-button--tiny"
+                  data-action="search-current-snippet"
+                >
+                  Search
+                </button>
+              </div>
+              ${
+                this.state.sessionMessage
+                  ? `<span class="prompt-toolbar__note">${escapeHtml(this.state.sessionMessage)}</span>`
+                  : `<span class="prompt-toolbar__note">Copy or search this snippet</span>`
+              }
+            </div>
+
             <div class="prompt-code ${promptCodeClass}">
               ${renderSnippet(session.currentSnippet.code, session.progress)}
             </div>
@@ -917,7 +1528,7 @@ export class TypingForEnjoyApp {
 
           <aside class="panel side-panel">
             <div class="stat-grid stat-grid--compact">
-              ${renderStatCard("Time", formatDuration(elapsedMs))}
+              ${this.state.sessionTimerVisible ? renderStatCard("Time", formatDuration(elapsedMs)) : ""}
               ${renderStatCard("Solved", `${session.completedSnippets}`)}
               ${renderStatCard("Hits", `${session.correctStrokes}`)}
               ${renderStatCard("Acc", `${accuracy.toFixed(1)}%`)}
@@ -993,12 +1604,22 @@ export class TypingForEnjoyApp {
             </div>
             <div class="result-actions">
               <button class="secondary-button" data-action="back-to-menu">Menu</button>
-              <button class="primary-button" data-action="retry-session">Retry</button>
+              ${
+                this.state.resultInterrupted && this.state.interruptedSession
+                  ? `<button class="secondary-button" data-action="resume-session">Resume</button>`
+                  : ""
+              }
+              ${renderPrimaryButton("retry-session", "Retry")}
             </div>
           </header>
 
           <div class="result-layout">
             <section class="result-main">
+              ${
+                this.state.resultInterrupted
+                  ? `<p class="result-note">Paused snapshot. Resume is available.</p>`
+                  : ""
+              }
               <div class="result-grid">
                 ${renderStatCard("Time", formatDuration(result.durationMs))}
                 ${renderStatCard("Solved", `${result.completedSnippets}`)}
@@ -1036,7 +1657,7 @@ export class TypingForEnjoyApp {
 
               <p class="result-shortcut">
                 <span>Enter</span>
-                Retry
+                ${this.state.resultInterrupted ? "Resume" : "Retry"}
                 <span>Esc</span>
                 Menu
               </p>
@@ -1073,6 +1694,26 @@ function renderStatCard(label: string, value: string) {
   `;
 }
 
+function renderPrimaryButton(
+  action: string,
+  label: string,
+  size: "compact" | "full" = "compact",
+) {
+  return `
+    <button class="primary-button primary-button--${size}" data-action="${action}">
+      <span class="primary-button__border">
+        <span class="primary-button__surface">
+          <span class="primary-button__label">${escapeHtml(label)}</span>
+        </span>
+      </span>
+      <span class="primary-button__backdrop"></span>
+      <span class="primary-button__spin primary-button__spin--blur"></span>
+      <span class="primary-button__spin primary-button__spin--intense"></span>
+      <span class="primary-button__spin primary-button__spin--inside"></span>
+    </button>
+  `;
+}
+
 function renderWeakKeyList(
   items: Array<{ key: string; misses: number; accuracy: number }>,
   emptyMessage: string,
@@ -1092,6 +1733,34 @@ function renderWeakKeyList(
               <span class="weak-key-item__key">${escapeHtml(displayKeyLabel(item.key))}</span>
               <span>×${item.misses}</span>
               <span>${item.accuracy.toFixed(1)}%</span>
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderImportedFileList(files: ImportedLibrary["files"]) {
+  if (files.length === 0) {
+    return `<p class="empty-note">No imports</p>`;
+  }
+
+  return `
+    <div class="history-list history-list--menu">
+      ${files
+        .map(
+          (file) => `
+            <article class="history-item history-item--menu">
+              <div class="history-item__head">
+                <span class="history-item__title">${escapeHtml(file.fileName)}</span>
+                <span>${formatter.format(file.importedAt)}</span>
+              </div>
+              <div class="history-item__body">
+                <span>${formatLanguage(file.language)}</span>
+                <span>${file.snippetCount} snippets</span>
+                <span>E${file.easyCount} / N${file.normalCount}</span>
+              </div>
             </article>
           `,
         )
@@ -1470,6 +2139,41 @@ function resolveExpectedKey(char: string) {
   return null;
 }
 
+function getSessionElapsedMs(session: ActiveSession) {
+  return session.elapsedBeforePauseMs + (Date.now() - session.startedAt);
+}
+
+function createSessionRecord(session: ActiveSession): SessionRecord {
+  return {
+    id: globalThis.crypto?.randomUUID?.() ?? `session-${Date.now()}`,
+    endedAt: Date.now(),
+    language: session.language,
+    difficulty: session.difficulty,
+    durationMs: getSessionElapsedMs(session),
+    correctStrokes: session.correctStrokes,
+    assistedCharacters: session.assistedCharacters,
+    assistedCompletions: session.assistedCompletions,
+    mistakeCount: session.errorCount,
+    totalKeystrokes: session.totalKeystrokes,
+    accuracy: calculateAccuracy(session.correctStrokes, session.totalKeystrokes),
+    completedSnippets: session.completedSnippets,
+    keyStats: session.keyStats,
+  };
+}
+
+function copyTextFallback(text: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
 function summarizeWeakKeys(history: SessionRecord[]) {
   const merged = new Map<string, { hits: number; misses: number }>();
 
@@ -1518,7 +2222,15 @@ function summarizeMistakePairs(keyStats: Record<string, KeyStat>) {
 }
 
 function formatLanguage(language: Language) {
-  return language === "typescript" ? "TypeScript" : "Python";
+  if (language === "typescript") {
+    return "TypeScript";
+  }
+
+  if (language === "python") {
+    return "Python";
+  }
+
+  return "SQL";
 }
 
 function formatDifficulty(difficulty: Difficulty) {
@@ -1526,7 +2238,15 @@ function formatDifficulty(difficulty: Difficulty) {
 }
 
 function formatSnippetSource(snippet: Snippet) {
-  return snippet.source === "generated" ? "Generated" : "Fixed";
+  if (snippet.source === "generated") {
+    return "Generated";
+  }
+
+  if (snippet.source === "imported") {
+    return "Imported";
+  }
+
+  return "Fixed";
 }
 
 function getPromptCodeClass(code: string) {
@@ -1545,4 +2265,46 @@ function getPromptCodeClass(code: string) {
   }
 
   return "";
+}
+
+function isTypingSoundProfile(
+  profile: string | undefined,
+): profile is TypingSoundProfile {
+  return (
+    profile === "typewriter" ||
+    profile === "mechanical" ||
+    profile === "soft"
+  );
+}
+
+function isLanguage(language: string | undefined): language is Language {
+  return (
+    language === "typescript" ||
+    language === "python" ||
+    language === "sql"
+  );
+}
+
+function isDifficulty(difficulty: string | undefined): difficulty is Difficulty {
+  return difficulty === "easy" || difficulty === "normal";
+}
+
+function buildImportFeedback(results: ImportedFileResult[], errors: string[]) {
+  const importedCount = results.reduce((sum, result) => sum + result.importedCount, 0);
+
+  if (results.length === 0 && errors.length > 0) {
+    return errors.slice(0, 2).join(" / ");
+  }
+
+  if (results.length === 1 && errors.length === 0) {
+    const result = results[0];
+    return `${result.summary.fileName} を ${result.importedCount} 問取り込みました。`;
+  }
+
+  const messages = [`${results.length}ファイル / ${importedCount}問を取り込みました。`];
+  if (errors.length > 0) {
+    messages.push(`${errors.length}件失敗`);
+  }
+
+  return messages.join(" ");
 }

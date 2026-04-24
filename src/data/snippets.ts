@@ -209,6 +209,110 @@ const SNIPPETS: Snippet[] = [
     ],
     code: "numbers = [value for value in range(5)]",
   },
+  {
+    id: "sql-easy-1",
+    language: "sql",
+    difficulty: "easy",
+    title: "Simple Select",
+    description: "SELECT と FROM の基本",
+    meaning: "`users` テーブルから `name` 列だけを取り出しています。",
+    notes: [
+      "`SELECT` は取り出したい列を指定します。",
+      "`FROM` はどのテーブルを見るかを表します。",
+    ],
+    code: "SELECT name FROM users;",
+  },
+  {
+    id: "sql-easy-2",
+    language: "sql",
+    difficulty: "easy",
+    title: "Insert Row",
+    description: "INSERT の基本形",
+    meaning: "`logs` テーブルへ 1 行追加しています。",
+    notes: [
+      "`INSERT INTO` は新しい行を追加するときに使います。",
+      "`VALUES` に追加する値を順番に書きます。",
+    ],
+    code: "INSERT INTO logs (message) VALUES ('done');",
+  },
+  {
+    id: "sql-easy-3",
+    language: "sql",
+    difficulty: "easy",
+    title: "Update Flag",
+    description: "UPDATE と WHERE の基本",
+    meaning: "`id = 3` のユーザーだけ `active` を 1 に更新しています。",
+    notes: [
+      "`SET` で更新したい列と値を指定します。",
+      "`WHERE` を付けないと全行更新になることがあります。",
+    ],
+    code: "UPDATE users SET active = 1 WHERE id = 3;",
+  },
+  {
+    id: "sql-easy-4",
+    language: "sql",
+    difficulty: "easy",
+    title: "Delete Rows",
+    description: "DELETE の基本形",
+    meaning: "期限切れのセッション行を削除しています。",
+    notes: [
+      "`DELETE FROM` は行を削除する命令です。",
+      "`WHERE expired = 1` で対象行を絞っています。",
+    ],
+    code: "DELETE FROM sessions WHERE expired = 1;",
+  },
+  {
+    id: "sql-normal-1",
+    language: "sql",
+    difficulty: "normal",
+    title: "Order Scores",
+    description: "WHERE と ORDER BY の組み合わせ",
+    meaning: "80点以上のプレイヤーを高得点順に取り出しています。",
+    notes: [
+      "`ORDER BY score DESC` は大きい順に並べます。",
+      "複数行に分けても 1 つの SQL 文として実行されます。",
+    ],
+    code: "SELECT name, score\nFROM players\nWHERE score >= 80\nORDER BY score DESC;",
+  },
+  {
+    id: "sql-normal-2",
+    language: "sql",
+    difficulty: "normal",
+    title: "Group Count",
+    description: "GROUP BY と集計関数",
+    meaning: "部署ごとの人数を集計しています。",
+    notes: [
+      "`COUNT(*)` は行数を数える関数です。",
+      "`GROUP BY department` で部署単位にまとめます。",
+    ],
+    code: "SELECT department, COUNT(*) AS total\nFROM employees\nGROUP BY department;",
+  },
+  {
+    id: "sql-normal-3",
+    language: "sql",
+    difficulty: "normal",
+    title: "Create Table",
+    description: "CREATE TABLE の基本",
+    meaning: "`tasks` テーブルの列構成を定義しています。",
+    notes: [
+      "`PRIMARY KEY` は主キー列を表します。",
+      "`NOT NULL` は空を許可しない制約です。",
+    ],
+    code: "CREATE TABLE tasks (\n  id INTEGER PRIMARY KEY,\n  title TEXT NOT NULL\n);",
+  },
+  {
+    id: "sql-normal-4",
+    language: "sql",
+    difficulty: "normal",
+    title: "CTE Select",
+    description: "WITH を使った抽出",
+    meaning: "最近の注文だけを一度まとめてから必要な列を取り出しています。",
+    notes: [
+      "`WITH` で一時的な結果セットに名前を付けられます。",
+      "長い検索条件を分けて読みやすくできます。",
+    ],
+    code: "WITH recent_orders AS (\n  SELECT * FROM orders WHERE created_at >= '2026-01-01'\n)\nSELECT id, user_id FROM recent_orders;",
+  },
 ];
 
 const ADDITIONAL_SNIPPETS: Snippet[] = [
@@ -419,6 +523,110 @@ const ADDITIONAL_SNIPPETS: Snippet[] = [
       "`except` はエラーが起きたときの処理です。",
     ],
     code: "try:\n  count = int(value)\nexcept ValueError:\n  count = 0",
+  },
+  {
+    id: "sql-easy-5",
+    language: "sql",
+    difficulty: "easy",
+    title: "All Columns",
+    description: "ワイルドカードの基本",
+    meaning: "`products` テーブルの全列を取り出しています。",
+    notes: [
+      "`*` は全列を意味します。",
+      "`WHERE` で価格が 500 未満の行だけに絞っています。",
+    ],
+    code: "SELECT * FROM products WHERE price < 500;",
+  },
+  {
+    id: "sql-easy-6",
+    language: "sql",
+    difficulty: "easy",
+    title: "Limit Rows",
+    description: "LIMIT で件数を絞る",
+    meaning: "新しい記事を 5 件だけ取得しています。",
+    notes: [
+      "`ORDER BY created_at DESC` は新しい順です。",
+      "`LIMIT 5` で返す行数を制限します。",
+    ],
+    code: "SELECT title FROM posts ORDER BY created_at DESC LIMIT 5;",
+  },
+  {
+    id: "sql-easy-7",
+    language: "sql",
+    difficulty: "easy",
+    title: "Alias Column",
+    description: "AS を使った別名",
+    meaning: "`name` 列を `user_name` という表示名で返しています。",
+    notes: [
+      "`AS` は列やテーブルに別名を付ける書き方です。",
+      "結果表の見出しを分かりやすくできます。",
+    ],
+    code: "SELECT name AS user_name FROM users;",
+  },
+  {
+    id: "sql-easy-8",
+    language: "sql",
+    difficulty: "easy",
+    title: "Count Rows",
+    description: "COUNT の基本",
+    meaning: "`orders` テーブルの行数を数えています。",
+    notes: [
+      "`COUNT(*)` は対象行の件数を返します。",
+      "`AS total` で結果列に名前を付けています。",
+    ],
+    code: "SELECT COUNT(*) AS total FROM orders;",
+  },
+  {
+    id: "sql-normal-5",
+    language: "sql",
+    difficulty: "normal",
+    title: "Join Tables",
+    description: "JOIN の基本",
+    meaning: "注文とユーザーを結合して名前と金額を取得しています。",
+    notes: [
+      "`JOIN` は複数テーブルの行をつなげます。",
+      "`ON` でどの列同士を対応させるかを書きます。",
+    ],
+    code: "SELECT users.name, orders.total\nFROM orders\nJOIN users ON users.id = orders.user_id;",
+  },
+  {
+    id: "sql-normal-6",
+    language: "sql",
+    difficulty: "normal",
+    title: "Case Status",
+    description: "CASE 式の練習",
+    meaning: "点数に応じてランク文字列を切り替えています。",
+    notes: [
+      "`CASE` は SQL の条件分岐です。",
+      "`END AS rank_label` で結果列名を付けています。",
+    ],
+    code: "SELECT name,\n  CASE WHEN score >= 80 THEN 'A' ELSE 'B' END AS rank_label\nFROM players;",
+  },
+  {
+    id: "sql-normal-7",
+    language: "sql",
+    difficulty: "normal",
+    title: "Having Count",
+    description: "HAVING で集計後に絞る",
+    meaning: "2件以上あるカテゴリだけを表示しています。",
+    notes: [
+      "`HAVING` は集計後の条件に使います。",
+      "`GROUP BY` のあとに書くのが基本です。",
+    ],
+    code: "SELECT category, COUNT(*) AS total\nFROM items\nGROUP BY category\nHAVING COUNT(*) >= 2;",
+  },
+  {
+    id: "sql-normal-8",
+    language: "sql",
+    difficulty: "normal",
+    title: "Sub Query",
+    description: "副問い合わせの基本",
+    meaning: "平均価格より高い商品だけを取り出しています。",
+    notes: [
+      "`(SELECT AVG(price) FROM products)` が副問い合わせです。",
+      "外側の WHERE 条件の中で結果を使えます。",
+    ],
+    code: "SELECT name, price\nFROM products\nWHERE price > (SELECT AVG(price) FROM products);",
   },
 ];
 
@@ -703,16 +911,169 @@ const GENERATED_TEMPLATES: Record<Language, Record<Difficulty, SnippetFactory[]>
       },
     ],
   },
+  sql: {
+    easy: [
+      () => {
+        const column = pick(["name", "title", "score", "price"]);
+        const table = pick(["users", "tasks", "products", "players"]);
+        return {
+          language: "sql",
+          difficulty: "easy",
+          title: "Generated Select",
+          description: "SELECT の生成問題",
+          meaning: `\`${table}\` テーブルから \`${column}\` 列を取り出しています。`,
+          notes: [
+            "列名とテーブル名がセッションごとに変わります。",
+            "`SELECT ... FROM ...;` の基本形を練習できます。",
+          ],
+          code: `SELECT ${column} FROM ${table};`,
+        };
+      },
+      () => {
+        const table = pick(["logs", "notes", "tasks", "messages"]);
+        const column = pick(["message", "title", "status", "label"]);
+        const text = pick(["ready", "typing", "done", "active"]);
+        return {
+          language: "sql",
+          difficulty: "easy",
+          title: "Generated Insert",
+          description: "INSERT の生成問題",
+          meaning: `\`${table}\` テーブルへ文字列データを1件追加しています。`,
+          notes: [
+            "テーブル名と値の内容がランダムに変わります。",
+            "`VALUES (...)` の入力練習になります。",
+          ],
+          code: `INSERT INTO ${table} (${column}) VALUES ('${text}');`,
+        };
+      },
+      () => {
+        const table = pick(["users", "tasks", "orders"]);
+        const column = pick(["active", "visible", "closed"]);
+        const id = randomInt(1, 9);
+        return {
+          language: "sql",
+          difficulty: "easy",
+          title: "Generated Update",
+          description: "UPDATE の生成問題",
+          meaning: `\`${table}\` の指定行を更新しています。`,
+          notes: [
+            "更新列と行番号がセッションごとに変わります。",
+            "`SET` と `WHERE` の練習になります。",
+          ],
+          code: `UPDATE ${table} SET ${column} = 1 WHERE id = ${id};`,
+        };
+      },
+      () => {
+        const table = pick(["sessions", "logs", "messages"]);
+        const column = pick(["expired", "archived", "deleted"]);
+        return {
+          language: "sql",
+          difficulty: "easy",
+          title: "Generated Delete",
+          description: "DELETE の生成問題",
+          meaning: `条件に合う行だけを \`${table}\` から削除しています。`,
+          notes: [
+            "テーブル名と条件列がランダムに変わります。",
+            "`DELETE FROM` と `WHERE` の基本形を練習できます。",
+          ],
+          code: `DELETE FROM ${table} WHERE ${column} = 1;`,
+        };
+      },
+    ],
+    normal: [
+      () => {
+        const preset = pick([
+          { table: "players", selectColumn: "name", column: "score", threshold: `${randomInt(5, 9) * 10}` },
+          { table: "orders", selectColumn: "user_id", column: "total", threshold: `${randomInt(10, 50) * 10}` },
+          { table: "posts", selectColumn: "title", column: "created_at", threshold: "'2026-01-01'" },
+        ]);
+        const orderDirection = pick(["DESC", "ASC"]);
+        return {
+          language: "sql",
+          difficulty: "normal",
+          title: "Generated Order",
+          description: "WHERE と ORDER BY の生成問題",
+          meaning: `条件に合う行を並び替えて取り出しています。`,
+          notes: [
+            "列名と並び順がランダムに変わります。",
+            "複数行の SELECT 文を練習できます。",
+          ],
+          code: `SELECT ${preset.selectColumn}, ${preset.column}\nFROM ${preset.table}\nWHERE ${preset.column} >= ${preset.threshold}\nORDER BY ${preset.column} ${orderDirection};`,
+        };
+      },
+      () => {
+        const table = pick(["employees", "items", "orders"]);
+        const groupColumn = pick(["department", "category", "status"]);
+        return {
+          language: "sql",
+          difficulty: "normal",
+          title: "Generated Group",
+          description: "GROUP BY の生成問題",
+          meaning: `\`${groupColumn}\` ごとの件数を集計しています。`,
+          notes: [
+            "集計対象のテーブルと列名が変わります。",
+            "`COUNT(*) AS total` の形を練習できます。",
+          ],
+          code: `SELECT ${groupColumn}, COUNT(*) AS total\nFROM ${table}\nGROUP BY ${groupColumn};`,
+        };
+      },
+      () => {
+        const table = pick(["tasks", "members", "products"]);
+        const textColumn = pick(["title", "name", "label"]);
+        const numberColumn = pick(["price", "level", "count"]);
+        return {
+          language: "sql",
+          difficulty: "normal",
+          title: "Generated Table",
+          description: "CREATE TABLE の生成問題",
+          meaning: `\`${table}\` テーブルの列を定義しています。`,
+          notes: [
+            "テーブル名と列名がセッションごとに変わります。",
+            "括弧やカンマ、制約の入力練習になります。",
+          ],
+          code: `CREATE TABLE ${table} (\n  id INTEGER PRIMARY KEY,\n  ${textColumn} TEXT NOT NULL,\n  ${numberColumn} INTEGER\n);`,
+        };
+      },
+      () => {
+        const leftTable = pick(["orders", "tasks", "posts"]);
+        const rightTable = leftTable === "orders" ? "users" : leftTable === "tasks" ? "projects" : "authors";
+        const leftColumn = leftTable === "orders" ? "user_id" : leftTable === "tasks" ? "project_id" : "author_id";
+        const rightColumn = "id";
+        const selectColumn =
+          rightTable === "users" ? "users.name" : rightTable === "projects" ? "projects.title" : "authors.name";
+        return {
+          language: "sql",
+          difficulty: "normal",
+          title: "Generated Join",
+          description: "JOIN の生成問題",
+          meaning: `2つのテーブルを結合して必要な列を取り出しています。`,
+          notes: [
+            "結合するテーブルの組み合わせがランダムに変わります。",
+            "`JOIN ... ON ...` の形を練習できます。",
+          ],
+          code: `SELECT ${selectColumn}, ${leftTable}.id\nFROM ${leftTable}\nJOIN ${rightTable} ON ${rightTable}.${rightColumn} = ${leftTable}.${leftColumn};`,
+        };
+      },
+    ],
+  },
 };
 
 export function getSnippetPool(
   language: Language,
   difficulty: Difficulty,
+  importedSnippets: Snippet[] = [],
 ): Snippet[] {
   const fixedSnippets = [...SNIPPETS, ...ADDITIONAL_SNIPPETS].filter(
     (snippet) =>
       snippet.language === language && snippet.difficulty === difficulty,
   );
+  const importedPool = importedSnippets.filter(
+    (snippet) =>
+      snippet.language === language && snippet.difficulty === difficulty,
+  );
+  if (importedPool.length > 0) {
+    return importedPool;
+  }
   const generatedSnippets = generateSnippets(language, difficulty, 8);
 
   return [...fixedSnippets, ...generatedSnippets];

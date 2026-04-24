@@ -1,11 +1,12 @@
-export type Language = "typescript" | "python";
+export type Language = "typescript" | "python" | "sql";
 export type Difficulty = "easy" | "normal";
 
 export interface Snippet {
   id: string;
   language: Language;
   difficulty: Difficulty;
-  source?: "fixed" | "generated";
+  source?: "fixed" | "generated" | "imported";
+  originLabel?: string;
   title: string;
   description: string;
   meaning: string;
