@@ -19,18 +19,22 @@ interface ActiveSession {
   progress: number;
   startedAt: number;
   correctStrokes: number;
+  assistedCharacters: number;
+  assistedCompletions: number;
   errorCount: number;
   totalKeystrokes: number;
   completedSnippets: number;
   keyStats: Record<string, KeyStat>;
   lastPressedCode: string | null;
   lastPressedWasCorrect: boolean | null;
+  selectedSuggestionIndex: number;
 }
 
 interface AppState {
   screen: Screen;
   language: Language;
   difficulty: Difficulty;
+  intellisenseEnabled: boolean;
   history: SessionRecord[];
   session: ActiveSession | null;
   result: SessionRecord | null;
@@ -43,7 +47,20 @@ interface KeyboardKey {
   width?: number;
 }
 
+interface IntelliSenseCandidate {
+  insertText: string;
+  label: string;
+  detail: string;
+  kind: "keyword" | "function" | "type" | "variable" | "property" | "snippet";
+}
+
+interface TokenContext {
+  start: number;
+  prefix: string;
+}
+
 const STORAGE_KEY = "typing-for-enjoy-workstore:v1";
+const SETTINGS_STORAGE_KEY = "typing-for-enjoy-workstore:settings:v1";
 const MAX_HISTORY = 20;
 const SHIFT_CODES = ["ShiftLeft", "ShiftRight"] as const;
 
@@ -183,6 +200,52 @@ const formatter = new Intl.DateTimeFormat("ja-JP", {
   minute: "2-digit",
 });
 
+const INTELLISENSE_CANDIDATES: Record<Language, IntelliSenseCandidate[]> = {
+  typescript: [
+    createCandidate("const", "keyword", "再代入しない値を宣言します。"),
+    createCandidate("let", "keyword", "あとで値を変えられる変数を宣言します。"),
+    createCandidate("function", "keyword", "名前付きの処理を定義します。"),
+    createCandidate("return", "keyword", "関数から値を返します。"),
+    createCandidate("type", "keyword", "データの形に名前を付けます。"),
+    createCandidate("string", "type", "文字列を表す型です。"),
+    createCandidate("number", "type", "数値を表す型です。"),
+    createCandidate("console.log", "function", "コンソールへ値を表示します。"),
+    createCandidate("filter", "function", "条件に合う要素だけを取り出します。"),
+    createCandidate("users", "variable", "ユーザー一覧を想定した配列です。"),
+    createCandidate("user", "variable", "1人分のユーザーを表します。"),
+    createCandidate("active", "property", "有効状態を表すプロパティです。"),
+    createCandidate("items", "variable", "要素の一覧を表す配列です。"),
+    createCandidate("item", "variable", "一覧から取り出した1つの要素です。"),
+    createCandidate("total", "variable", "合計値を入れる変数です。"),
+    createCandidate("price", "property", "価格を表すプロパティです。"),
+    createCandidate("Profile", "type", "プロフィールの型名です。"),
+    createCandidate("name", "property", "名前を表す項目です。"),
+    createCandidate("level", "property", "レベルを表す項目です。"),
+    createCandidate("score", "variable", "点数を表す変数です。"),
+  ],
+  python: [
+    createCandidate("def", "keyword", "関数を定義します。"),
+    createCandidate("return", "keyword", "関数から値を返します。"),
+    createCandidate("if", "keyword", "条件分岐を作ります。"),
+    createCandidate("for", "keyword", "要素を順番に処理します。"),
+    createCandidate("in", "keyword", "ループや所属判定に使います。"),
+    createCandidate("print", "function", "標準出力に値を表示します。"),
+    createCandidate("range", "function", "連続した数値を作ります。"),
+    createCandidate("str", "type", "文字列を表す型ヒントです。"),
+    createCandidate("total", "variable", "合計値を入れる変数です。"),
+    createCandidate("user_name", "variable", "ユーザー名を入れる変数です。"),
+    createCandidate("items", "variable", "要素の一覧を表すリストです。"),
+    createCandidate("item", "variable", "一覧から取り出した1つの要素です。"),
+    createCandidate("price", "property", "価格を表すキーです。"),
+    createCandidate("profile", "variable", "プロフィール情報を入れる辞書です。"),
+    createCandidate("name", "property", "名前を表すキーです。"),
+    createCandidate("level", "property", "レベルを表すキーです。"),
+    createCandidate("numbers", "variable", "数値リストを入れる変数です。"),
+    createCandidate("value", "variable", "内包表記で取り出す値です。"),
+    createCandidate("score", "variable", "点数を表す変数です。"),
+  ],
+};
+
 export class TypingForEnjoyApp {
   private readonly root: HTMLElement;
   private state: AppState;
@@ -194,6 +257,7 @@ export class TypingForEnjoyApp {
       screen: "menu",
       language: "typescript",
       difficulty: "easy",
+      intellisenseEnabled: this.loadIntellisenseSetting(),
       history: this.loadHistory(),
       session: null,
       result: null,
@@ -243,6 +307,11 @@ export class TypingForEnjoyApp {
 
     if (action === "reset-history") {
       this.resetHistory();
+      return;
+    }
+
+    if (action === "toggle-intellisense") {
+      this.toggleIntelliSense();
     }
   };
 
@@ -310,12 +379,15 @@ export class TypingForEnjoyApp {
       progress: 0,
       startedAt: Date.now(),
       correctStrokes: 0,
+      assistedCharacters: 0,
+      assistedCompletions: 0,
       errorCount: 0,
       totalKeystrokes: 0,
       completedSnippets: 0,
       keyStats: {},
       lastPressedCode: null,
       lastPressedWasCorrect: null,
+      selectedSuggestionIndex: 0,
     };
     this.state.result = null;
     this.state.screen = "session";
@@ -335,7 +407,27 @@ export class TypingForEnjoyApp {
       return;
     }
 
-    if (event.key === "Tab" || event.key === "Backspace") {
+    if (this.state.intellisenseEnabled && event.key === "ArrowDown") {
+      event.preventDefault();
+      this.moveSuggestionSelection(session, 1);
+      return;
+    }
+
+    if (this.state.intellisenseEnabled && event.key === "ArrowUp") {
+      event.preventDefault();
+      this.moveSuggestionSelection(session, -1);
+      return;
+    }
+
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (this.state.intellisenseEnabled) {
+        this.applySelectedSuggestion(session);
+      }
+      return;
+    }
+
+    if (event.key === "Backspace") {
       event.preventDefault();
       return;
     }
@@ -355,6 +447,7 @@ export class TypingForEnjoyApp {
     session.totalKeystrokes += 1;
     session.lastPressedCode = event.code;
     session.lastPressedWasCorrect = inputChar === expectedChar;
+    session.selectedSuggestionIndex = 0;
 
     const stat = getOrCreateKeyStat(session.keyStats, expectedChar);
     if (inputChar === expectedChar) {
@@ -375,9 +468,67 @@ export class TypingForEnjoyApp {
     this.render();
   }
 
+  private moveSuggestionSelection(session: ActiveSession, direction: number) {
+    const suggestions = getIntelliSenseSuggestions(session);
+    if (suggestions.length === 0) {
+      return;
+    }
+
+    session.selectedSuggestionIndex =
+      (session.selectedSuggestionIndex + direction + suggestions.length) %
+      suggestions.length;
+    this.render();
+  }
+
+  private applySelectedSuggestion(session: ActiveSession) {
+    const suggestions = getIntelliSenseSuggestions(session);
+    if (suggestions.length === 0) {
+      return;
+    }
+
+    const index = clampIndex(session.selectedSuggestionIndex, suggestions.length);
+    const suggestion = suggestions[index];
+    const token = getCurrentTokenContext(
+      session.currentSnippet.code,
+      session.progress,
+    );
+    if (!token || !suggestion.insertText.startsWith(token.prefix)) {
+      return;
+    }
+
+    const assistedText = suggestion.insertText.slice(token.prefix.length);
+    if (assistedText.length === 0) {
+      return;
+    }
+
+    const expectedText = session.currentSnippet.code.slice(
+      session.progress,
+      session.progress + assistedText.length,
+    );
+    if (expectedText !== assistedText) {
+      return;
+    }
+
+    session.progress += assistedText.length;
+    session.assistedCharacters += assistedText.length;
+    session.assistedCompletions += 1;
+    session.selectedSuggestionIndex = 0;
+    session.lastPressedCode = "Tab";
+    session.lastPressedWasCorrect = true;
+
+    if (session.progress >= session.currentSnippet.code.length) {
+      session.completedSnippets += 1;
+      this.advanceSnippet(session);
+    }
+
+    this.render();
+  }
+
   private advanceSnippet(session: ActiveSession) {
     session.currentIndex += 1;
     if (session.currentIndex >= session.queue.length) {
+      const refreshedPool = getSnippetPool(session.language, session.difficulty);
+      session.pool = refreshedPool.length > 0 ? refreshedPool : session.pool;
       session.queue = shuffle(session.pool);
       session.currentIndex = 0;
     }
@@ -386,6 +537,7 @@ export class TypingForEnjoyApp {
     session.progress = 0;
     session.lastPressedCode = null;
     session.lastPressedWasCorrect = null;
+    session.selectedSuggestionIndex = 0;
   }
 
   private finishSession() {
@@ -401,6 +553,8 @@ export class TypingForEnjoyApp {
       difficulty: session.difficulty,
       durationMs: Date.now() - session.startedAt,
       correctStrokes: session.correctStrokes,
+      assistedCharacters: session.assistedCharacters,
+      assistedCompletions: session.assistedCompletions,
       mistakeCount: session.errorCount,
       totalKeystrokes: session.totalKeystrokes,
       accuracy: calculateAccuracy(session.correctStrokes, session.totalKeystrokes),
@@ -455,9 +609,39 @@ export class TypingForEnjoyApp {
     }
   }
 
+  private loadIntellisenseSetting() {
+    try {
+      const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (!raw) {
+        return true;
+      }
+
+      const parsed = JSON.parse(raw) as { intellisenseEnabled?: boolean };
+      return parsed.intellisenseEnabled ?? true;
+    } catch {
+      return true;
+    }
+  }
+
   private persistHistory() {
     const payload = JSON.stringify({ history: this.state.history });
     window.localStorage.setItem(STORAGE_KEY, payload);
+  }
+
+  private persistSettings() {
+    const payload = JSON.stringify({
+      intellisenseEnabled: this.state.intellisenseEnabled,
+    });
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, payload);
+  }
+
+  private toggleIntelliSense() {
+    this.state.intellisenseEnabled = !this.state.intellisenseEnabled;
+    if (this.state.session) {
+      this.state.session.selectedSuggestionIndex = 0;
+    }
+    this.persistSettings();
+    this.render();
   }
 
   private resetHistory() {
@@ -503,6 +687,10 @@ export class TypingForEnjoyApp {
       (sum, record) => sum + record.mistakeCount,
       0,
     );
+    const totalAssisted = this.state.history.reduce(
+      (sum, record) => sum + (record.assistedCharacters ?? 0),
+      0,
+    );
     const averageAccuracy =
       this.state.history.length > 0
         ? this.state.history.reduce((sum, record) => sum + record.accuracy, 0) /
@@ -522,6 +710,13 @@ export class TypingForEnjoyApp {
               <span>Enter</span>
               <span>Arrow</span>
             </div>
+            <button
+              class="secondary-button"
+              data-action="toggle-intellisense"
+              aria-pressed="${this.state.intellisenseEnabled}"
+            >
+              IntelliSense ${this.state.intellisenseEnabled ? "ON" : "OFF"}
+            </button>
             <button
               class="secondary-button secondary-button--danger"
               data-action="reset-history"
@@ -574,6 +769,7 @@ export class TypingForEnjoyApp {
               )}
               ${renderStatCard("Solved", `${totalCompleted}`)}
               ${renderStatCard("Misses", `${totalMistakes}`)}
+              ${renderStatCard("Assist", `${totalAssisted}`)}
             </div>
 
             <div class="panel-head panel-head--tight">
@@ -658,15 +854,30 @@ export class TypingForEnjoyApp {
     const expectedKey = describeExpectedKey(expectedChar);
     const expectedCodes = getExpectedCodes(expectedChar);
     const liveWeakKeys = summarizeWeakKeys([serializeLiveSession(session)]);
+    const suggestions = this.state.intellisenseEnabled
+      ? getIntelliSenseSuggestions(session)
+      : [];
+    const selectedSuggestionIndex = clampIndex(
+      session.selectedSuggestionIndex,
+      suggestions.length,
+    );
+    const snippetSourceLabel = formatSnippetSource(session.currentSnippet);
+    const promptCodeClass = getPromptCodeClass(session.currentSnippet.code);
 
     return `
       <div class="app-shell app-shell--session">
         <header class="panel topbar topbar--session">
           <div class="topbar__group">
             <h1 class="app-title">${formatLanguage(session.language)} / ${formatDifficulty(session.difficulty)}</h1>
-            <div class="mode-strip">${escapeHtml(session.currentSnippet.title)}</div>
           </div>
           <div class="topbar__meta topbar__meta--session">
+            <button
+              class="secondary-button"
+              data-action="toggle-intellisense"
+              aria-pressed="${this.state.intellisenseEnabled}"
+            >
+              IntelliSense ${this.state.intellisenseEnabled ? "ON" : "OFF"}
+            </button>
             <div class="session-chip">
               <span class="session-chip__label">Next</span>
               <span class="session-chip__value">${escapeHtml(displayKeyLabel(expectedChar))}</span>
@@ -682,7 +893,10 @@ export class TypingForEnjoyApp {
         <main class="session-layout">
           <section class="panel prompt-panel">
             <div class="prompt-panel__top">
-              <span class="prompt-title">${escapeHtml(session.currentSnippet.title)}</span>
+              <span class="prompt-title">
+                ${escapeHtml(session.currentSnippet.title)}
+                <span class="prompt-source">${snippetSourceLabel}</span>
+              </span>
               <span class="prompt-count">${session.progress}/${session.currentSnippet.code.length}</span>
             </div>
 
@@ -690,9 +904,15 @@ export class TypingForEnjoyApp {
               <div class="progress-strip__bar" style="width:${progressRate.toFixed(2)}%"></div>
             </div>
 
-            <div class="prompt-code">
+            <div class="prompt-code ${promptCodeClass}">
               ${renderSnippet(session.currentSnippet.code, session.progress)}
             </div>
+
+            ${renderIntelliSensePanel(
+              suggestions,
+              selectedSuggestionIndex,
+              this.state.intellisenseEnabled,
+            )}
           </section>
 
           <aside class="panel side-panel">
@@ -701,6 +921,7 @@ export class TypingForEnjoyApp {
               ${renderStatCard("Solved", `${session.completedSnippets}`)}
               ${renderStatCard("Hits", `${session.correctStrokes}`)}
               ${renderStatCard("Acc", `${accuracy.toFixed(1)}%`)}
+              ${renderStatCard("Assist", `${session.assistedCharacters}`)}
             </div>
 
             <div class="panel-head panel-head--tight">
@@ -785,6 +1006,7 @@ export class TypingForEnjoyApp {
                 ${renderStatCard("Misses", `${result.mistakeCount}`)}
                 ${renderStatCard("Keys", `${result.totalKeystrokes}`)}
                 ${renderStatCard("Acc", `${result.accuracy.toFixed(1)}%`)}
+                ${renderStatCard("Assist", `${result.assistedCharacters ?? 0}`)}
               </div>
 
               <section class="result-section">
@@ -878,6 +1100,53 @@ function renderWeakKeyList(
   `;
 }
 
+function renderIntelliSensePanel(
+  suggestions: IntelliSenseCandidate[],
+  selectedIndex: number,
+  enabled: boolean,
+) {
+  if (!enabled) {
+    return `
+      <div class="intellisense-panel intellisense-panel--muted">
+        <span class="intellisense-panel__status">IntelliSense OFF</span>
+      </div>
+    `;
+  }
+
+  if (suggestions.length === 0) {
+    return `
+      <div class="intellisense-panel intellisense-panel--muted">
+        <span class="intellisense-panel__status">候補なし</span>
+        <span class="intellisense-panel__hint">単語を入力すると候補が出ます</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="intellisense-panel">
+      <div class="intellisense-panel__head">
+        <span>IntelliSense</span>
+        <span>↑↓ Select / Tab Complete</span>
+      </div>
+      <div class="suggestion-list">
+        ${suggestions
+          .map(
+            (suggestion, index) => `
+              <article class="suggestion-item ${
+                index === selectedIndex ? "suggestion-item--selected" : ""
+              }">
+                <span class="suggestion-item__kind">${suggestion.kind}</span>
+                <span class="suggestion-item__label">${escapeHtml(suggestion.label)}</span>
+                <span class="suggestion-item__detail">${escapeHtml(suggestion.detail)}</span>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
 function renderExplanationPanel(snippet: Snippet) {
   return `
     <div class="explanation-panel__content">
@@ -922,6 +1191,92 @@ function renderKeyboardKeyLabel(key: KeyboardKey, expectedChar: string) {
     <span class="keyboard-key__shift${shiftClass}">${escapeHtml(key.shiftLabel)}</span>
     <span class="keyboard-key__base${baseClass}">${escapeHtml(key.label)}</span>
   `;
+}
+
+function createCandidate(
+  insertText: string,
+  kind: IntelliSenseCandidate["kind"],
+  detail: string,
+): IntelliSenseCandidate {
+  return {
+    insertText,
+    label: insertText,
+    kind,
+    detail,
+  };
+}
+
+function getIntelliSenseSuggestions(session: ActiveSession) {
+  const token = getCurrentTokenContext(
+    session.currentSnippet.code,
+    session.progress,
+  );
+  if (!token || token.prefix.length === 0) {
+    return [];
+  }
+
+  const targetToken = getTargetToken(session.currentSnippet.code, token.start);
+  const candidates = [...INTELLISENSE_CANDIDATES[session.language]];
+  if (
+    targetToken &&
+    !candidates.some((candidate) => candidate.insertText === targetToken)
+  ) {
+    candidates.push(
+      createCandidate(targetToken, "snippet", "この問題文に出てくる識別子です。"),
+    );
+  }
+
+  const seen = new Set<string>();
+  return candidates
+    .filter((candidate) => {
+      if (seen.has(candidate.insertText)) {
+        return false;
+      }
+
+      seen.add(candidate.insertText);
+      return (
+        candidate.insertText.length > token.prefix.length &&
+        candidate.insertText.startsWith(token.prefix) &&
+        session.currentSnippet.code.startsWith(candidate.insertText, token.start)
+      );
+    })
+    .slice(0, 5);
+}
+
+function getCurrentTokenContext(code: string, progress: number): TokenContext | null {
+  let start = progress;
+  while (start > 0 && isCompletionTokenChar(code[start - 1])) {
+    start -= 1;
+  }
+
+  const prefix = code.slice(start, progress);
+  if (!prefix || !isCompletionTokenChar(prefix[0])) {
+    return null;
+  }
+
+  return { start, prefix };
+}
+
+function getTargetToken(code: string, start: number) {
+  let end = start;
+  while (end < code.length && isCompletionTokenChar(code[end])) {
+    end += 1;
+  }
+
+  const token = code.slice(start, end);
+  return token.length > 0 ? token : null;
+}
+
+function isCompletionTokenChar(char: string) {
+  return /[A-Za-z0-9_.]/.test(char);
+}
+
+function clampIndex(index: number, length: number) {
+  if (length <= 0) {
+    return 0;
+  }
+
+  return Math.min(Math.max(index, 0), length - 1);
 }
 
 function renderSnippet(code: string, progress: number) {
@@ -983,6 +1338,8 @@ function serializeLiveSession(session: ActiveSession): SessionRecord {
     difficulty: session.difficulty,
     durationMs: Date.now() - session.startedAt,
     correctStrokes: session.correctStrokes,
+    assistedCharacters: session.assistedCharacters,
+    assistedCompletions: session.assistedCompletions,
     mistakeCount: session.errorCount,
     totalKeystrokes: session.totalKeystrokes,
     accuracy: calculateAccuracy(session.correctStrokes, session.totalKeystrokes),
@@ -1166,4 +1523,26 @@ function formatLanguage(language: Language) {
 
 function formatDifficulty(difficulty: Difficulty) {
   return difficulty === "easy" ? "Easy" : "Normal";
+}
+
+function formatSnippetSource(snippet: Snippet) {
+  return snippet.source === "generated" ? "Generated" : "Fixed";
+}
+
+function getPromptCodeClass(code: string) {
+  const lines = code.split("\n");
+  const longestLine = lines.reduce(
+    (maxLength, line) => Math.max(maxLength, line.length),
+    0,
+  );
+
+  if (code.length > 165 || lines.length >= 5 || longestLine > 56) {
+    return "prompt-code--ultra";
+  }
+
+  if (code.length > 105 || lines.length >= 4 || longestLine > 42) {
+    return "prompt-code--dense";
+  }
+
+  return "";
 }

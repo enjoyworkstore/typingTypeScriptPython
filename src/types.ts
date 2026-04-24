@@ -5,6 +5,7 @@ export interface Snippet {
   id: string;
   language: Language;
   difficulty: Difficulty;
+  source?: "fixed" | "generated";
   title: string;
   description: string;
   meaning: string;
@@ -26,6 +27,8 @@ export interface SessionRecord {
   difficulty: Difficulty;
   durationMs: number;
   correctStrokes: number;
+  assistedCharacters: number;
+  assistedCompletions: number;
   mistakeCount: number;
   totalKeystrokes: number;
   accuracy: number;
