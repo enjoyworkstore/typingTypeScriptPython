@@ -15,7 +15,13 @@ import type {
 } from "./types";
 
 type Screen = "menu" | "session" | "result";
-type TypingSoundProfile = "typewriter" | "mechanical" | "soft";
+type TypingSoundProfile =
+  | "typewriter"
+  | "mechanical"
+  | "soft"
+  | "retro"
+  | "glass"
+  | "wood";
 
 interface ActiveSession {
   language: Language;
@@ -233,8 +239,11 @@ const TYPING_SOUND_OPTIONS: Array<{
   detail: string;
 }> = [
   { value: "typewriter", label: "Typewriter", detail: "sharp" },
-  { value: "mechanical", label: "Mechanical", detail: "heavy" },
+  { value: "mechanical", label: "Mech", detail: "heavy" },
   { value: "soft", label: "Soft", detail: "quiet" },
+  { value: "retro", label: "Retro", detail: "arcade" },
+  { value: "glass", label: "Glass", detail: "bright" },
+  { value: "wood", label: "Wood", detail: "dry" },
 ];
 
 const INTELLISENSE_CANDIDATES: Record<Language, IntelliSenseCandidate[]> = {
@@ -598,11 +607,16 @@ export class TypingForEnjoyApp {
 
     session.totalKeystrokes += 1;
     session.lastPressedCode = event.code;
-    session.lastPressedWasCorrect = inputChar === expectedChar;
+    const isCorrectInput = isAcceptedInput(
+      session.language,
+      inputChar,
+      expectedChar,
+    );
+    session.lastPressedWasCorrect = isCorrectInput;
     session.selectedSuggestionIndex = 0;
 
     const stat = getOrCreateKeyStat(session.keyStats, expectedChar);
-    if (inputChar === expectedChar) {
+    if (isCorrectInput) {
       session.correctStrokes += 1;
       stat.hits += 1;
       session.progress += 1;
@@ -618,7 +632,7 @@ export class TypingForEnjoyApp {
     }
 
     this.playTypingSound({
-      correct: inputChar === expectedChar,
+      correct: isCorrectInput,
     });
     this.render();
   }
@@ -1005,6 +1019,60 @@ export class TypingForEnjoyApp {
           volume: 0.008 * loudness,
         });
         break;
+      case "retro":
+        this.emitTone(context, {
+          when,
+          type: "square",
+          startFrequency: 1600 * pitch,
+          endFrequency: 720 * pitch,
+          duration: 0.018,
+          volume: 0.018 * loudness,
+        });
+        this.emitTone(context, {
+          when: when + 0.002,
+          type: "square",
+          startFrequency: 420 * pitch,
+          endFrequency: 180 * pitch,
+          duration: 0.026,
+          volume: 0.01 * loudness,
+        });
+        break;
+      case "glass":
+        this.emitTone(context, {
+          when,
+          type: "sine",
+          startFrequency: 2400 * pitch,
+          endFrequency: 1500 * pitch,
+          duration: 0.03,
+          volume: 0.012 * loudness,
+        });
+        this.emitTone(context, {
+          when: when + 0.001,
+          type: "triangle",
+          startFrequency: 920 * pitch,
+          endFrequency: 540 * pitch,
+          duration: 0.04,
+          volume: 0.007 * loudness,
+        });
+        break;
+      case "wood":
+        this.emitTone(context, {
+          when,
+          type: "triangle",
+          startFrequency: 520 * pitch,
+          endFrequency: 180 * pitch,
+          duration: 0.025,
+          volume: 0.018 * loudness,
+        });
+        this.emitTone(context, {
+          when: when + 0.003,
+          type: "sine",
+          startFrequency: 180 * pitch,
+          endFrequency: 92 * pitch,
+          duration: 0.05,
+          volume: 0.01 * loudness,
+        });
+        break;
     }
   }
 
@@ -1117,8 +1185,8 @@ export class TypingForEnjoyApp {
 
   private renderMenu() {
     const aggregateWeakKeys = summarizeWeakKeys(this.state.history);
-    const recentHistory = this.state.history.slice(0, 3);
-    const recentImportedFiles = this.state.importedLibrary.files.slice(0, 3);
+    const recentHistory = this.state.history.slice(0, 2);
+    const recentImportedFiles = this.state.importedLibrary.files.slice(0, 2);
     const importedSnippets = this.state.importedLibrary.snippets;
     const importedFileCount = this.state.importedLibrary.files.length;
     const selectedImportedCount = importedSnippets.filter(
@@ -1139,14 +1207,6 @@ export class TypingForEnjoyApp {
       (sum, record) => sum + record.completedSnippets,
       0,
     );
-    const totalMistakes = this.state.history.reduce(
-      (sum, record) => sum + record.mistakeCount,
-      0,
-    );
-    const totalAssisted = this.state.history.reduce(
-      (sum, record) => sum + (record.assistedCharacters ?? 0),
-      0,
-    );
     const averageAccuracy =
       this.state.history.length > 0
         ? this.state.history.reduce((sum, record) => sum + record.accuracy, 0) /
@@ -1159,8 +1219,8 @@ export class TypingForEnjoyApp {
     const importedModeActive = selectedImportedCount > 0;
     const importReadyText =
       importedModeActive
-        ? `${formatLanguage(this.state.language)} / ${formatDifficulty(this.state.difficulty)} はインポートコード ${selectedImportedCount} 問のみ出題`
-        : `${formatLanguage(this.state.language)} / ${formatDifficulty(this.state.difficulty)} のインポートコードはまだありません`;
+        ? `${formatLanguage(this.state.language)} / ${formatDifficulty(this.state.difficulty)} は imported ${selectedImportedCount} 問のみ`
+        : `${formatLanguage(this.state.language)} / ${formatDifficulty(this.state.difficulty)} は imported なし`;
 
     return `
       <div class="app-shell app-shell--menu">
@@ -1301,8 +1361,6 @@ export class TypingForEnjoyApp {
                   this.state.history.length > 0 ? `${averageAccuracy.toFixed(1)}%` : "-",
                 )}
                 ${renderStatCard("Solved", `${totalCompleted}`)}
-                ${renderStatCard("Misses", `${totalMistakes}`)}
-                ${renderStatCard("Assist", `${totalAssisted}`)}
                 ${renderStatCard("Imported", `${importedSnippets.length}`)}
               </div>
             </div>
@@ -1310,7 +1368,7 @@ export class TypingForEnjoyApp {
             <div class="choice-block">
               <div class="choice-label">Weak Keys</div>
               <div class="menu-stack">
-                ${renderWeakKeyList(aggregateWeakKeys, "No history", 4)}
+                ${renderWeakKeyList(aggregateWeakKeys, "No history", 2)}
               </div>
             </div>
           </section>
@@ -1426,8 +1484,12 @@ export class TypingForEnjoyApp {
         ? (session.progress / session.currentSnippet.code.length) * 100
         : 0;
     const expectedChar = session.currentSnippet.code[session.progress] ?? "";
-    const expectedKey = describeExpectedKey(expectedChar);
-    const expectedCodes = getExpectedCodes(expectedChar);
+    const keyboardExpectedChar = getKeyboardExpectedChar(
+      session.language,
+      expectedChar,
+    );
+    const expectedKey = describeExpectedKey(session.language, expectedChar);
+    const expectedCodes = getExpectedCodes(session.language, expectedChar);
     const liveWeakKeys = summarizeWeakKeys([serializeLiveSession(session)]);
     const suggestions = this.state.intellisenseEnabled
       ? getIntelliSenseSuggestions(session)
@@ -1551,11 +1613,12 @@ export class TypingForEnjoyApp {
                 `<div class="keyboard-row">${row
                   .map((key) => {
                     const isExpected = expectedCodes.includes(key.code);
-                    const isShiftSymbolExpected = key.shiftLabel === expectedChar;
+                    const isShiftSymbolExpected =
+                      key.shiftLabel === keyboardExpectedChar;
                     const isBaseSymbolExpected =
-                      key.label === expectedChar ||
-                      (expectedChar === " " && key.code === "Space") ||
-                      (expectedChar === "\n" && key.code === "Enter");
+                      key.label === keyboardExpectedChar ||
+                      (keyboardExpectedChar === " " && key.code === "Space") ||
+                      (keyboardExpectedChar === "\n" && key.code === "Enter");
                     const isPressed = session.lastPressedCode === key.code;
                     const isWrong = isPressed && session.lastPressedWasCorrect === false;
                     const classes = [
@@ -1571,7 +1634,7 @@ export class TypingForEnjoyApp {
 
                     return `
                       <div class="${classes}" style="--key-width:${key.width ?? 1}">
-                        ${renderKeyboardKeyLabel(key, expectedChar)}
+                        ${renderKeyboardKeyLabel(key, keyboardExpectedChar)}
                       </div>
                     `;
                   })
@@ -2092,8 +2155,8 @@ function displayKeyLabel(char: string) {
   return char;
 }
 
-function describeExpectedKey(char: string) {
-  const meta = resolveExpectedKey(char);
+function describeExpectedKey(language: Language, char: string) {
+  const meta = resolveExpectedKey(getKeyboardExpectedChar(language, char));
   if (!meta) {
     return "入力待機";
   }
@@ -2102,13 +2165,34 @@ function describeExpectedKey(char: string) {
   return meta.shift ? `Shift + ${keyName} -> ${displayKeyLabel(char)}` : keyName;
 }
 
-function getExpectedCodes(char: string) {
-  const meta = resolveExpectedKey(char);
+function getExpectedCodes(language: Language, char: string) {
+  const meta = resolveExpectedKey(getKeyboardExpectedChar(language, char));
   if (!meta) {
     return [];
   }
 
   return meta.shift ? [meta.primaryCode, ...SHIFT_CODES] : [meta.primaryCode];
+}
+
+function getKeyboardExpectedChar(language: Language, char: string) {
+  if (language === "sql" && /^[A-Z]$/.test(char)) {
+    return char.toLowerCase();
+  }
+
+  return char;
+}
+
+function isAcceptedInput(language: Language, inputChar: string, expectedChar: string) {
+  if (inputChar === expectedChar) {
+    return true;
+  }
+
+  return (
+    language === "sql" &&
+    /^[A-Za-z]$/.test(inputChar) &&
+    /^[A-Za-z]$/.test(expectedChar) &&
+    inputChar.toLowerCase() === expectedChar.toLowerCase()
+  );
 }
 
 function resolveExpectedKey(char: string) {
@@ -2273,7 +2357,10 @@ function isTypingSoundProfile(
   return (
     profile === "typewriter" ||
     profile === "mechanical" ||
-    profile === "soft"
+    profile === "soft" ||
+    profile === "retro" ||
+    profile === "glass" ||
+    profile === "wood"
   );
 }
 

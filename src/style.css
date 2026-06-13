@@ -237,8 +237,12 @@ button:disabled {
 .menu-grid {
   min-height: 0;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 320px;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 0.82fr);
+  grid-template-areas:
+    "control overview"
+    "control history";
+  gap: 8px;
 }
 
 .control-panel,
@@ -254,6 +258,39 @@ button:disabled {
 .control-panel {
   display: flex;
   flex-direction: column;
+  grid-area: control;
+}
+
+.overview-panel {
+  grid-area: overview;
+}
+
+.history-panel {
+  grid-area: history;
+}
+
+.app-shell--menu .topbar {
+  padding: 8px 12px;
+}
+
+.app-shell--menu .app-title {
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+}
+
+.app-shell--menu .topbar__ornament,
+.app-shell--menu .shortcut-strip {
+  display: none;
+}
+
+.app-shell--menu .topbar__group,
+.app-shell--menu .topbar__meta {
+  gap: 6px;
+}
+
+.app-shell--menu .topbar .secondary-button {
+  padding: 8px 10px;
+  font-size: 0.66rem;
 }
 
 .panel-head {
@@ -278,6 +315,10 @@ button:disabled {
 
 .choice-block + .choice-block {
   margin-top: 14px;
+}
+
+.app-shell--menu .choice-block + .choice-block {
+  margin-top: 10px;
 }
 
 .choice-label {
@@ -339,6 +380,35 @@ button:disabled {
   line-height: 1.45;
 }
 
+.app-shell--menu .control-panel {
+  padding: 14px;
+}
+
+.app-shell--menu .overview-panel,
+.app-shell--menu .history-panel {
+  padding: 12px;
+}
+
+.app-shell--menu .choice-label {
+  margin-bottom: 6px;
+  font-size: 0.66rem;
+}
+
+.app-shell--menu .choice-card {
+  min-height: 60px;
+  padding: 9px 10px;
+}
+
+.app-shell--menu .choice-grid {
+  gap: 6px;
+}
+
+.app-shell--menu .control-panel .panel-head,
+.app-shell--menu .overview-panel .panel-head,
+.app-shell--menu .history-panel .panel-head {
+  margin-bottom: 8px;
+}
+
 .choice-grid--language .choice-card {
   min-height: 72px;
   padding: 10px;
@@ -370,10 +440,15 @@ button:disabled {
 }
 
 .control-panel__footer {
-  margin-top: auto;
+  margin-top: 8px;
   display: flex;
   justify-content: center;
   gap: 8px;
+}
+
+.app-shell--menu .control-panel__footer {
+  margin-top: auto;
+  align-items: center;
 }
 
 .secondary-button {
@@ -433,8 +508,8 @@ button:disabled {
 
 .import-panel {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 8px 10px;
   border-radius: 12px;
   border: 1px solid rgba(194, 163, 106, 0.14);
   background:
@@ -449,14 +524,14 @@ button:disabled {
 
 .import-panel__count {
   color: var(--ink);
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   letter-spacing: 0.02em;
 }
 
 .import-panel__detail {
   color: var(--muted);
-  font-size: 0.7rem;
-  line-height: 1.42;
+  font-size: 0.64rem;
+  line-height: 1.34;
 }
 
 .import-panel__actions {
@@ -466,8 +541,8 @@ button:disabled {
 .import-feedback {
   margin: 0;
   color: var(--accent);
-  font-size: 0.7rem;
-  line-height: 1.45;
+  font-size: 0.64rem;
+  line-height: 1.34;
 }
 
 .choice-grid--sound {
@@ -475,20 +550,20 @@ button:disabled {
 }
 
 .choice-card--sound {
-  min-height: 68px;
-  padding: 10px 8px;
+  min-height: 54px;
+  padding: 8px 6px;
   align-items: center;
   text-align: center;
 }
 
 .choice-card--sound .choice-card__title {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   letter-spacing: 0.04em;
 }
 
 .choice-card--sound .choice-card__detail {
-  margin-top: 4px;
-  font-size: 0.66rem;
+  margin-top: 3px;
+  font-size: 0.58rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -682,6 +757,7 @@ button:disabled {
 
 .stat-grid--menu {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .result-grid {
@@ -815,7 +891,37 @@ button:disabled {
 
 .history-item--menu .history-item__head span:last-child,
 .history-item--menu .history-item__body span {
-  font-size: 0.74rem;
+  font-size: 0.68rem;
+}
+
+.app-shell--menu .stat-card {
+  padding: 8px 10px;
+}
+
+.app-shell--menu .stat-card__label {
+  font-size: 0.56rem;
+}
+
+.app-shell--menu .stat-card__value {
+  margin-top: 4px;
+  font-size: 0.82rem;
+}
+
+.app-shell--menu .empty-note {
+  padding: 10px;
+  font-size: 0.7rem;
+}
+
+.app-shell--menu .weak-key-item,
+.app-shell--menu .history-item {
+  padding: 8px 10px;
+}
+
+.app-shell--menu .weak-key-item__key,
+.app-shell--menu .history-item__title,
+.app-shell--menu .weak-key-item span,
+.app-shell--menu .history-item span {
+  font-size: 0.68rem;
 }
 
 .empty-note {
